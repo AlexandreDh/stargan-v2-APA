@@ -44,12 +44,14 @@ def main(args):
                                              img_size=args.img_size,
                                              batch_size=args.batch_size,
                                              prob=args.randcrop_prob,
+                                             affine_prob=args.randaffine_prob,
                                              num_workers=args.num_workers),
                         ref=get_train_loader(root=args.train_img_dir,
                                              which='reference',
                                              img_size=args.img_size,
                                              batch_size=args.batch_size,
                                              prob=args.randcrop_prob,
+                                             affine_prob=args.randaffine_prob,
                                              num_workers=args.num_workers),
                         val=get_test_loader(root=args.val_img_dir,
                                             img_size=args.img_size,
@@ -112,6 +114,8 @@ if __name__ == '__main__':
     # training arguments
     parser.add_argument('--randcrop_prob', type=float, default=0.5,
                         help='Probabilty of using random-resized cropping')
+    parser.add_argument('--randaffine_prob', type=float, default=0,
+                        help='Probability of using random affine transformation')
     parser.add_argument('--total_iters', type=int, default=100000,
                         help='Number of total iterations')
     parser.add_argument('--resume_iter', type=int, default=0,

@@ -55,7 +55,8 @@ class Solver(nn.Module):
                 CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets_ema.ckpt'), data_parallel=True, **self.nets_ema),
                 CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_optims.ckpt'), **self.optims)]
         else:
-            self.ckptios = [CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets_ema.ckpt'), data_parallel=True, **self.nets_ema)]
+            self.ckptios = [
+                CheckpointIO(ospj(args.checkpoint_dir, '{:06d}_nets_ema.ckpt'), data_parallel=True, **self.nets_ema)]
 
         self.to(self.device)
         for name, network in self.named_children():
@@ -96,6 +97,13 @@ class Solver(nn.Module):
 
         print('Start training...')
         start_time = time.time()
+
+        d_losses_latent_avg = {}
+        d_losses_ref_avg = {}
+        g_losses_latent_avg = {}
+        g_losses_ref_avg = {}
+
+        window_avg_len = 100
         for i in range(args.resume_iter, args.total_iters):
             # fetch images and labels
             inputs = next(fetcher)
@@ -133,6 +141,12 @@ class Solver(nn.Module):
             g_loss.backward()
             optims.generator.step()
 
+            # computing moving average of losses
+            add_loss_avg(d_losses_latent_avg, d_losses_latent, window_avg_len)
+            add_loss_avg(d_losses_ref_avg, d_losses_ref, window_avg_len)
+            add_loss_avg(g_losses_latent_avg, g_losses_latent, window_avg_len)
+            add_loss_avg(g_losses_ref_avg, g_losses_ref, window_avg_len)
+
             # compute moving average of network parameters
             moving_average(nets.generator, nets_ema.generator, beta=0.999)
             moving_average(nets.mapping_network, nets_ema.mapping_network, beta=0.999)
@@ -143,32 +157,32 @@ class Solver(nn.Module):
                 args.lambda_ds -= (initial_lambda_ds / args.ds_iter)
 
             # print out log info
-            if (i+1) % args.print_every == 0:
+            if (i + 1) % args.print_every == 0:
                 elapsed = time.time() - start_time
                 elapsed = str(datetime.timedelta(seconds=elapsed))[:-7]
-                log = "Elapsed time [%s], Iteration [%i/%i], " % (elapsed, i+1, args.total_iters)
+                log = "Elapsed time [%s], Iteration [%i/%i], " % (elapsed, i + 1, args.total_iters)
                 all_losses = dict()
-                for loss, prefix in zip([d_losses_latent, d_losses_ref, g_losses_latent, g_losses_ref],
+                for loss_avg, prefix in zip([d_losses_latent_avg, d_losses_ref_avg, g_losses_latent_avg, g_losses_ref_avg],
                                         ['D/latent_', 'D/ref_', 'G/latent_', 'G/ref_']):
-                    for key, value in loss.items():
-                        all_losses[prefix + key] = value
+                    for key, avg in loss_avg.items():
+                        all_losses[prefix + key] = avg.value
                 all_losses['G/lambda_ds'] = args.lambda_ds
                 log += ' '.join(['%s: [%.4f]' % (key, value) for key, value in all_losses.items()])
                 print(log)
 
             # generate images for debugging
-            if (i+1) % args.sample_every == 0:
+            if (i + 1) % args.sample_every == 0:
                 os.makedirs(args.sample_dir, exist_ok=True)
-                utils.debug_image(nets_ema, args, inputs=inputs_val, step=i+1)
+                utils.debug_image(nets_ema, args, inputs=inputs_val, step=i + 1)
 
             # save model checkpoints
-            if (i+1) % args.save_every == 0:
-                self._save_checkpoint(step=i+1)
+            if (i + 1) % args.save_every == 0:
+                self._save_checkpoint(step=i + 1)
 
             # compute FID and LPIPS if necessary
-            if (i+1) % args.eval_every == 0:
-                calculate_metrics(nets_ema, args, i+1, mode='latent')
-                calculate_metrics(nets_ema, args, i+1, mode='reference')
+            if (i + 1) % args.eval_every == 0:
+                calculate_metrics(nets_ema, args, i + 1, mode='latent')
+                calculate_metrics(nets_ema, args, i + 1, mode='reference')
 
     @torch.no_grad()
     def sample(self, loaders):
@@ -196,6 +210,42 @@ class Solver(nn.Module):
         self._load_checkpoint(args.resume_iter)
         calculate_metrics(nets_ema, args, step=resume_iter, mode='latent')
         calculate_metrics(nets_ema, args, step=resume_iter, mode='reference')
+
+
+class MovingAverage:
+
+    def __init__(self, window=100):
+        self.window = window
+        self._values = []
+
+    @property
+    def value(self):
+        return self._get_average()
+
+    def add_value(self, val):
+        if len(self._values) >= self.window:
+            self._values = self._values[len(self._values) - self.window + 1:]
+
+        self._values.append(val)
+
+    def _get_average(self):
+        if len(self._values) == 0:
+            raise RuntimeError("Moving average with no values")
+
+        sum = 0
+        for v in self._values:
+            sum += v
+
+        return sum / len(self._values)
+
+
+def add_loss_avg(loss_avg, loss, window_avg_len):
+    if len(loss_avg) == 0:
+        for k in loss.keys():
+            loss_avg[k] = MovingAverage(window_avg_len)
+
+    for k, v in loss.items():
+        loss_avg[k].add_value(v)
 
 
 def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, masks=None):
@@ -260,7 +310,7 @@ def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, m
     loss_cyc = torch.mean(torch.abs(x_rec - x_real))
 
     loss = loss_adv + args.lambda_sty * loss_sty \
-        - args.lambda_ds * loss_ds + args.lambda_cyc * loss_cyc
+           - args.lambda_ds * loss_ds + args.lambda_cyc * loss_cyc
     return loss, Munch(adv=loss_adv.item(),
                        sty=loss_sty.item(),
                        ds=loss_ds.item(),
@@ -287,6 +337,6 @@ def r1_reg(d_out, x_in):
         create_graph=True, retain_graph=True, only_inputs=True
     )[0]
     grad_dout2 = grad_dout.pow(2)
-    assert(grad_dout2.size() == x_in.size())
+    assert (grad_dout2.size() == x_in.size())
     reg = 0.5 * grad_dout2.view(batch_size, -1).sum(1).mean(0)
     return reg

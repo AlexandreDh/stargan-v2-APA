@@ -19,6 +19,7 @@ import torch.nn.functional as F
 
 from core.wing import FAN
 
+max_starting_dim = 128
 
 class ResBlk(nn.Module):
     def __init__(self, dim_in, dim_out, actv=nn.LeakyReLU(0.2),
@@ -68,7 +69,7 @@ class AdaIN(nn.Module):
     def __init__(self, style_dim, num_features):
         super().__init__()
         self.norm = nn.InstanceNorm2d(num_features, affine=False)
-        self.fc = nn.Linear(style_dim, num_features*2)
+        self.fc = nn.Linear(style_dim, num_features * 2)
 
     def forward(self, x, s):
         h = self.fc(s)
@@ -136,7 +137,7 @@ class HighPass(nn.Module):
 class Generator(nn.Module):
     def __init__(self, img_size=256, style_dim=64, max_conv_dim=512, w_hpf=1):
         super().__init__()
-        dim_in = 2**14 // img_size
+        dim_in = min(2**14 // img_size, max_starting_dim)
         self.img_size = img_size
         self.from_rgb = nn.Conv2d(3, dim_in, 3, 1, 1)
         self.encode = nn.ModuleList()
@@ -151,7 +152,7 @@ class Generator(nn.Module):
         if w_hpf > 0:
             repeat_num += 1
         for _ in range(repeat_num):
-            dim_out = min(dim_in*2, max_conv_dim)
+            dim_out = min(dim_in * 2, max_conv_dim)
             self.encode.append(
                 ResBlk(dim_in, dim_out, normalize=True, downsample=True))
             self.decode.insert(
@@ -188,25 +189,25 @@ class Generator(nn.Module):
 
 
 class MappingNetwork(nn.Module):
-    def __init__(self, latent_dim=16, style_dim=64, num_domains=2):
+    def __init__(self, latent_dim=16, style_dim=64, num_domains=2, hidden_dim=512):
         super().__init__()
         layers = []
-        layers += [nn.Linear(latent_dim, 512)]
+        layers += [nn.Linear(latent_dim, hidden_dim)]
         layers += [nn.ReLU()]
         for _ in range(3):
-            layers += [nn.Linear(512, 512)]
+            layers += [nn.Linear(hidden_dim, hidden_dim)]
             layers += [nn.ReLU()]
         self.shared = nn.Sequential(*layers)
 
         self.unshared = nn.ModuleList()
         for _ in range(num_domains):
-            self.unshared += [nn.Sequential(nn.Linear(512, 512),
+            self.unshared += [nn.Sequential(nn.Linear(hidden_dim, hidden_dim),
                                             nn.ReLU(),
-                                            nn.Linear(512, 512),
+                                            nn.Linear(hidden_dim, hidden_dim),
                                             nn.ReLU(),
-                                            nn.Linear(512, 512),
+                                            nn.Linear(hidden_dim, hidden_dim),
                                             nn.ReLU(),
-                                            nn.Linear(512, style_dim))]
+                                            nn.Linear(hidden_dim, style_dim))]
 
     def forward(self, z, y):
         h = self.shared(z)
@@ -222,13 +223,13 @@ class MappingNetwork(nn.Module):
 class StyleEncoder(nn.Module):
     def __init__(self, img_size=256, style_dim=64, num_domains=2, max_conv_dim=512):
         super().__init__()
-        dim_in = 2**14 // img_size
+        dim_in = min(2**14 // img_size, max_starting_dim)
         blocks = []
         blocks += [nn.Conv2d(3, dim_in, 3, 1, 1)]
 
         repeat_num = int(np.log2(img_size)) - 2
         for _ in range(repeat_num):
-            dim_out = min(dim_in*2, max_conv_dim)
+            dim_out = min(dim_in * 2, max_conv_dim)
             blocks += [ResBlk(dim_in, dim_out, downsample=True)]
             dim_in = dim_out
 
@@ -256,13 +257,13 @@ class StyleEncoder(nn.Module):
 class Discriminator(nn.Module):
     def __init__(self, img_size=256, num_domains=2, max_conv_dim=512):
         super().__init__()
-        dim_in = 2**14 // img_size
+        dim_in = min(2**14 // img_size, max_starting_dim)
         blocks = []
         blocks += [nn.Conv2d(3, dim_in, 3, 1, 1)]
 
         repeat_num = int(np.log2(img_size)) - 2
         for _ in range(repeat_num):
-            dim_out = min(dim_in*2, max_conv_dim)
+            dim_out = min(dim_in * 2, max_conv_dim)
             blocks += [ResBlk(dim_in, dim_out, downsample=True)]
             dim_in = dim_out
 
@@ -281,10 +282,13 @@ class Discriminator(nn.Module):
 
 
 def build_model(args):
-    generator = nn.DataParallel(Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf))
-    mapping_network = nn.DataParallel(MappingNetwork(args.latent_dim, args.style_dim, args.num_domains))
-    style_encoder = nn.DataParallel(StyleEncoder(args.img_size, args.style_dim, args.num_domains))
-    discriminator = nn.DataParallel(Discriminator(args.img_size, args.num_domains))
+    generator = nn.DataParallel(
+        Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf, max_conv_dim=args.hidden_dim))
+    mapping_network = nn.DataParallel(
+        MappingNetwork(args.latent_dim, args.style_dim, args.num_domains, hidden_dim=args.hidden_dim))
+    style_encoder = nn.DataParallel(
+        StyleEncoder(args.img_size, args.style_dim, args.num_domains, max_conv_dim=args.hidden_dim))
+    discriminator = nn.DataParallel(Discriminator(args.img_size, args.num_domains, max_conv_dim=args.hidden_dim))
     generator_ema = copy.deepcopy(generator)
     mapping_network_ema = copy.deepcopy(mapping_network)
     style_encoder_ema = copy.deepcopy(style_encoder)
