@@ -116,7 +116,7 @@ if __name__ == '__main__':
                         help='Probabilty of using random-resized cropping')
     parser.add_argument('--randaffine_prob', type=float, default=0,
                         help='Probability of using random affine transformation')
-    parser.add_argument('--use_apa', type=bool,action="store_true",
+    parser.add_argument('--use_apa', action="store_true",
                         help='Use APA augmentation for the discriminator')
     parser.add_argument('--apa_interval', type=int, default=4,
                         help='Number of batch between two apa evaluation')
