@@ -116,6 +116,12 @@ if __name__ == '__main__':
                         help='Probabilty of using random-resized cropping')
     parser.add_argument('--randaffine_prob', type=float, default=0,
                         help='Probability of using random affine transformation')
+    parser.add_argument('--use_apa', type=bool,action="store_true",
+                        help='Use APA augmentation for the discriminator')
+    parser.add_argument('--apa_interval', type=int, default=4,
+                        help='Number of batch between two apa evaluation')
+    parser.add_argument('--apa_kimg', type=int, default=500,
+                        help='APA adjustment speed, measured in how many kimg it takes for p to increase/decrease by one units')
     parser.add_argument('--total_iters', type=int, default=100000,
                         help='Number of total iterations')
     parser.add_argument('--resume_iter', type=int, default=0,

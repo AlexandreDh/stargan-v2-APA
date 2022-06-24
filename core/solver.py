@@ -24,6 +24,8 @@ from core.data_loader import InputFetcher
 import core.utils as utils
 from metrics.eval import calculate_metrics
 
+import numpy as np
+
 
 class Solver(nn.Module):
     def __init__(self, args):
@@ -83,6 +85,11 @@ class Solver(nn.Module):
         nets_ema = self.nets_ema
         optims = self.optims
 
+        domain_batch_count = np.zeros(args.num_domains)
+        apa_target = 0.6
+        zero_tensor = torch.zeros([], device=self.device)
+        pseudo_data = None
+
         # fetch random validation images for debugging
         fetcher = InputFetcher(loaders.src, loaders.ref, args.latent_dim, 'train')
         fetcher_val = InputFetcher(loaders.val, None, args.latent_dim, 'val')
@@ -103,6 +110,8 @@ class Solver(nn.Module):
         g_losses_latent_avg = {}
         g_losses_ref_avg = {}
 
+        apa_stat = [StatCollector(self.device) for _ in range(self.num_domains)]
+
         window_avg_len = 100
         for i in range(args.resume_iter, args.total_iters):
             # fetch images and labels
@@ -114,20 +123,24 @@ class Solver(nn.Module):
             masks = nets.fan.get_heatmap(x_real) if args.w_hpf > 0 else None
 
             # train the discriminator
-            d_loss, d_losses_latent = compute_d_loss(
-                nets, args, x_real, y_org, y_trg, z_trg=z_trg, masks=masks)
+            d_loss, d_losses_latent, signs_real = compute_d_loss(
+                nets, args, x_real, y_org, y_trg, z_trg=z_trg, masks=masks, pseudo_data=pseudo_data)
             self._reset_grad()
             d_loss.backward()
             optims.discriminator.step()
 
-            d_loss, d_losses_ref = compute_d_loss(
-                nets, args, x_real, y_org, y_trg, x_ref=x_ref, masks=masks)
+            apa_stat[y_org].add(signs_real)
+
+            d_loss, d_losses_ref, signs_real = compute_d_loss(
+                nets, args, x_real, y_org, y_trg, x_ref=x_ref, masks=masks, pseudo_data=pseudo_data)
             self._reset_grad()
             d_loss.backward()
             optims.discriminator.step()
+
+            apa_stat[y_org].add(signs_real)
 
             # train the generator
-            g_loss, g_losses_latent = compute_g_loss(
+            g_loss, g_losses_latent, p_data_latent = compute_g_loss(
                 nets, args, x_real, y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks)
             self._reset_grad()
             g_loss.backward()
@@ -135,7 +148,9 @@ class Solver(nn.Module):
             optims.mapping_network.step()
             optims.style_encoder.step()
 
-            g_loss, g_losses_ref = compute_g_loss(
+            pseudo_data = p_data_latent
+
+            g_loss, g_losses_ref, _ = compute_g_loss(
                 nets, args, x_real, y_org, y_trg, x_refs=[x_ref, x_ref2], masks=masks)
             self._reset_grad()
             g_loss.backward()
@@ -156,18 +171,30 @@ class Solver(nn.Module):
             if args.lambda_ds > 0:
                 args.lambda_ds -= (initial_lambda_ds / args.ds_iter)
 
+            domain_batch_count[y_org] += 1
+            # execute APA heuristic
+            if args.use_apa and domain_batch_count[y_org] % args.apa_interval:
+                apa_stat[y_org].update()
+                adjust = np.sign(apa_stat[y_org].mean() - apa_target) \
+                         * (args.batch_size * args.apa_interval) / (args.apa_kimg * 1000)
+                nets.discriminator.p[y_org].copy_((nets.discriminator.p[y_org] + adjust).clamp_(0., 1.))
+
+
             # print out log info
             if (i + 1) % args.print_every == 0:
                 elapsed = time.time() - start_time
                 elapsed = str(datetime.timedelta(seconds=elapsed))[:-7]
                 log = "Elapsed time [%s], Iteration [%i/%i], " % (elapsed, i + 1, args.total_iters)
                 all_losses = dict()
-                for loss_avg, prefix in zip([d_losses_latent_avg, d_losses_ref_avg, g_losses_latent_avg, g_losses_ref_avg],
-                                        ['D/latent_', 'D/ref_', 'G/latent_', 'G/ref_']):
+                for loss_avg, prefix in zip(
+                        [d_losses_latent_avg, d_losses_ref_avg, g_losses_latent_avg, g_losses_ref_avg],
+                        ['D/latent_', 'D/ref_', 'G/latent_', 'G/ref_']):
                     for key, avg in loss_avg.items():
                         all_losses[prefix + key] = avg.value
                 all_losses['G/lambda_ds'] = args.lambda_ds
                 log += ' '.join(['%s: [%.4f]' % (key, value) for key, value in all_losses.items()])
+                log += " loss/signs/real " ' '.join([f"domain {i}:{apa_stat[i].mean()}" for i in range(args.num_domains)])
+                log += " augment " + ' '.join([f"domain {i}:{nets.discriminator.p[i].cpu():.2f}" for i in range(args.num_domains)])
                 print(log)
 
             # generate images for debugging
@@ -239,6 +266,51 @@ class MovingAverage:
         return sum / len(self._values)
 
 
+class StatCollector:
+
+    def __init__(self, device):
+        self._delta = torch.zeros([3], device=device, dtype=torch.float64)
+        self.device = device
+        self._cumulative = torch.zeros([3], device=device, dtype=torch.float64)
+
+    def add(self, value):
+        if value.numel() == 0:
+            return
+
+        elems = value.detach().flatten().to(torch.float32)
+        moments = torch.stack([
+            torch.ones_like(elems).sum(),
+            elems.sum(),
+            elems.square().sum(),
+        ]).to(torch.float64)
+
+        self._cumulative.add_(moments)
+
+    def update(self):
+        self._delta.copy_(self._cumulative)
+        self._cumulative = torch.zeros([3], device=self.device, dtype=torch.float64)
+
+    def num(self):
+        return int(self._delta[0])
+
+    def mean(self):
+        if int(self._delta[0]) == 0:
+            return float("nan")
+        return float(self._delta[1] / self._delta[0])
+
+    def std(self):
+        if int(self._delta[0]) == 0 or not np.isfinite(float(self._delta[1])):
+            return float('nan')
+
+        if int(self._delta[0]) == 1:
+            return float(0)
+
+        mean = float(self._delta[1] / self._delta[0])
+        raw_var = float(self._delta[2] / self._delta[0])
+
+        return np.sqrt(max(raw_var - np.square(mean), 0))
+
+
 def add_loss_avg(loss_avg, loss, window_avg_len):
     if len(loss_avg) == 0:
         for k in loss.keys():
@@ -248,13 +320,34 @@ def add_loss_avg(loss_avg, loss, window_avg_len):
         loss_avg[k].add_value(v)
 
 
-def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, masks=None):
+def adaptive_pseudo_augmentation(p, real_img, pseudo_data, device):
+    # Apply Adaptive Pseudo Augmentation (APA)
+    batch_size = real_img.shape[0]
+    pseudo_flag = torch.ones([batch_size, 1, 1, 1], device=device)
+    pseudo_flag = torch.where(torch.rand([batch_size, 1, 1, 1], device=device) < p,
+                              pseudo_flag, torch.zeros_like(pseudo_flag))
+    if torch.allclose(pseudo_flag, torch.zeros_like(pseudo_flag)):
+        return real_img
+    else:
+        assert pseudo_data is not None
+        return pseudo_data * pseudo_flag + real_img * (1 - pseudo_flag)
+
+
+def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, masks=None, pseudo_data=None):
     assert (z_trg is None) != (x_ref is None)
+
+    if args.use_apa and pseudo_data is not None:
+        x_real_augmented = adaptive_pseudo_augmentation(nets.discriminator.p[y_org], x_real, pseudo_data, args.device)
+    else:
+        x_real_augmented = x_real
+
     # with real images
     x_real.requires_grad_()
-    out = nets.discriminator(x_real, y_org)
-    loss_real = adv_loss(out, 1)
-    loss_reg = r1_reg(out, x_real)
+    x_real_augmented.requires_grad_()
+
+    logits_real = nets.discriminator(x_real_augmented, y_org)
+    loss_real = adv_loss(logits_real, 1)
+    loss_reg = r1_reg(logits_real, x_real_augmented)
 
     # with fake images
     with torch.no_grad():
@@ -270,7 +363,7 @@ def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, mas
     loss = loss_real + loss_fake + args.lambda_reg * loss_reg
     return loss, Munch(real=loss_real.item(),
                        fake=loss_fake.item(),
-                       reg=loss_reg.item())
+                       reg=loss_reg.item()), logits_real.sign()
 
 
 def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, masks=None):
@@ -314,7 +407,7 @@ def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, m
     return loss, Munch(adv=loss_adv.item(),
                        sty=loss_sty.item(),
                        ds=loss_ds.item(),
-                       cyc=loss_cyc.item())
+                       cyc=loss_cyc.item()), x_fake.detach()
 
 
 def moving_average(model, model_test, beta=0.999):

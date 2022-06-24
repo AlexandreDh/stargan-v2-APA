@@ -257,6 +257,9 @@ class StyleEncoder(nn.Module):
 class Discriminator(nn.Module):
     def __init__(self, img_size=256, num_domains=2, max_conv_dim=512):
         super().__init__()
+        # Overall multiplier for augmentation probability for APA, one for each domain
+        self.register_buffer('p', torch.zeros([num_domains]))
+
         dim_in = min(2**14 // img_size, max_starting_dim)
         blocks = []
         blocks += [nn.Conv2d(3, dim_in, 3, 1, 1)]
