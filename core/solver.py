@@ -110,7 +110,7 @@ class Solver(nn.Module):
         g_losses_latent_avg = {}
         g_losses_ref_avg = {}
 
-        apa_stat = [StatCollector(self.device) for _ in range(self.num_domains)]
+        apa_stat = [StatCollector(self.device) for _ in range(args.num_domains)]
 
         window_avg_len = 100
         for i in range(args.resume_iter, args.total_iters):
