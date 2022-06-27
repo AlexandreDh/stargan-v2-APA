@@ -85,9 +85,8 @@ class Solver(nn.Module):
         nets_ema = self.nets_ema
         optims = self.optims
 
-        domain_batch_count = np.zeros(args.num_domains)
+        domain_batch_count = np.zeros(1)
         apa_target = 0.6
-        zero_tensor = torch.zeros([], device=self.device)
         pseudo_data = None
 
         # fetch random validation images for debugging
@@ -110,7 +109,7 @@ class Solver(nn.Module):
         g_losses_latent_avg = {}
         g_losses_ref_avg = {}
 
-        apa_stat = [StatCollector(self.device) for _ in range(args.num_domains)]
+        apa_stat = StatCollector(args.num_domains, self.device)
 
         window_avg_len = 100
         for i in range(args.resume_iter, args.total_iters):
@@ -129,7 +128,7 @@ class Solver(nn.Module):
             d_loss.backward()
             optims.discriminator.step()
 
-            apa_stat[y_org].add(signs_real)
+            apa_stat.add(signs_real)
 
             d_loss, d_losses_ref, signs_real = compute_d_loss(
                 nets, args, x_real, y_org, y_trg, x_ref=x_ref, masks=masks, pseudo_data=pseudo_data)
@@ -137,7 +136,7 @@ class Solver(nn.Module):
             d_loss.backward()
             optims.discriminator.step()
 
-            apa_stat[y_org].add(signs_real)
+            apa_stat.add(signs_real)
 
             # train the generator
             g_loss, g_losses_latent, p_data_latent = compute_g_loss(
@@ -171,13 +170,12 @@ class Solver(nn.Module):
             if args.lambda_ds > 0:
                 args.lambda_ds -= (initial_lambda_ds / args.ds_iter)
 
-            domain_batch_count[y_org] += 1
             # execute APA heuristic
-            if args.use_apa and domain_batch_count[y_org] % args.apa_interval:
-                apa_stat[y_org].update()
-                adjust = np.sign(apa_stat[y_org].mean() - apa_target) \
+            if args.use_apa and (i + 1) % args.apa_interval:
+                apa_stat.update()
+                adjust = np.sign(apa_stat.mean() - apa_target) \
                          * (args.batch_size * args.apa_interval) / (args.apa_kimg * 1000)
-                nets.discriminator.p[y_org].copy_((nets.discriminator.p[y_org] + adjust).clamp_(0., 1.))
+                nets.discriminator.p.copy_((nets.discriminator.p + adjust).clamp_(0., 1.))
 
 
             # print out log info
@@ -193,8 +191,8 @@ class Solver(nn.Module):
                         all_losses[prefix + key] = avg.value
                 all_losses['G/lambda_ds'] = args.lambda_ds
                 log += ' '.join(['%s: [%.4f]' % (key, value) for key, value in all_losses.items()])
-                log += " loss/signs/real " ' '.join([f"domain {i}:{apa_stat[i].mean()}" for i in range(args.num_domains)])
-                log += " augment " + ' '.join([f"domain {i}:{nets.discriminator.p[i].cpu():.2f}" for i in range(args.num_domains)])
+                log += f" loss/signs/real: {apa_stat.mean()}"
+                log += f" augment: {nets.discriminator.p.cpu():.2f}"
                 print(log)
 
             # generate images for debugging
@@ -268,16 +266,19 @@ class MovingAverage:
 
 class StatCollector:
 
-    def __init__(self, device):
-        self._delta = torch.zeros([3], device=device, dtype=torch.float64)
+    def __init__(self, num_domains, device):
+        self._delta = torch.zeros([num_domains, 3], device=device, dtype=torch.float64)
         self.device = device
-        self._cumulative = torch.zeros([3], device=device, dtype=torch.float64)
+        self.num_domains = num_domains
+        self._cumulative = torch.zeros([num_domains, 3], device=device, dtype=torch.float64)
 
     def add(self, value):
         if value.numel() == 0:
             return
 
         elems = value.detach().flatten().to(torch.float32)
+
+        moments = torch.zeros([self.num_domains, 3], device=self.device, dtype=torch.float64)
         moments = torch.stack([
             torch.ones_like(elems).sum(),
             elems.sum(),
@@ -288,7 +289,7 @@ class StatCollector:
 
     def update(self):
         self._delta.copy_(self._cumulative)
-        self._cumulative = torch.zeros([3], device=self.device, dtype=torch.float64)
+        self._cumulative = torch.zeros([self.num_domains, 3], device=self.device, dtype=torch.float64)
 
     def num(self):
         return int(self._delta[0])
@@ -296,7 +297,7 @@ class StatCollector:
     def mean(self):
         if int(self._delta[0]) == 0:
             return float("nan")
-        return float(self._delta[1] / self._delta[0])
+        return float(self._delta[i, 1] / self._delta[i, 0])
 
     def std(self):
         if int(self._delta[0]) == 0 or not np.isfinite(float(self._delta[1])):
@@ -337,7 +338,7 @@ def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, mas
     assert (z_trg is None) != (x_ref is None)
 
     if args.use_apa and pseudo_data is not None:
-        x_real_augmented = adaptive_pseudo_augmentation(nets.discriminator.p[y_org], x_real, pseudo_data, args.device)
+        x_real_augmented = adaptive_pseudo_augmentation(nets.discriminator.p, x_real, pseudo_data, args.device)
     else:
         x_real_augmented = x_real
 
