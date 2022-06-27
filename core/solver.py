@@ -171,7 +171,7 @@ class Solver(nn.Module):
                 args.lambda_ds -= (initial_lambda_ds / args.ds_iter)
 
             # execute APA heuristic
-            if args.use_apa and (i + 1) % args.apa_interval:
+            if args.use_apa and (i + 1) % args.apa_interval and ((args.resume_iter < args.apa_start and i + 1 >= args.apa_start) or args.resume_iter >= args.apa_start):
                 apa_stat.update()
                 adjust = np.sign(apa_stat.mean() - apa_target) \
                          * (args.batch_size * args.apa_interval) / (args.apa_kimg * 1000)
