@@ -285,10 +285,10 @@ class Discriminator(nn.Module):
 
 
 def build_model(args):
-    generator = Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf, max_conv_dim=args.hidden_dim)
-    mapping_network = MappingNetwork(args.latent_dim, args.style_dim, args.num_domains, hidden_dim=args.hidden_dim)
-    style_encoder = StyleEncoder(args.img_size, args.style_dim, args.num_domains, max_conv_dim=args.hidden_dim)
-    discriminator = Discriminator(args.img_size, args.num_domains, max_conv_dim=args.hidden_dim)
+    generator = nn.DataParallel(Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf, max_conv_dim=args.hidden_dim))
+    mapping_network = nn.DataParallel(MappingNetwork(args.latent_dim, args.style_dim, args.num_domains, hidden_dim=args.hidden_dim))
+    style_encoder = nn.DataParallel(StyleEncoder(args.img_size, args.style_dim, args.num_domains, max_conv_dim=args.hidden_dim))
+    discriminator = nn.DataParallel(Discriminator(args.img_size, args.num_domains, max_conv_dim=args.hidden_dim))
     generator_ema = copy.deepcopy(generator)
     mapping_network_ema = copy.deepcopy(mapping_network)
     style_encoder_ema = copy.deepcopy(style_encoder)

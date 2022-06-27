@@ -175,7 +175,7 @@ class Solver(nn.Module):
                 apa_stat.update()
                 adjust = np.sign(apa_stat.mean() - apa_target) \
                          * (args.batch_size * args.apa_interval) / (args.apa_kimg * 1000)
-                nets.discriminator.p.copy_((nets.discriminator.p + adjust).clamp_(0., 1.))
+                nets.discriminator.module.p.copy_((nets.discriminator.module.p + adjust).clamp_(0., 1.))
 
             # print out log info
             if (i + 1) % args.print_every == 0:
@@ -335,7 +335,7 @@ def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, mas
     assert (z_trg is None) != (x_ref is None)
 
     if args.use_apa and pseudo_data is not None:
-        x_real_augmented = adaptive_pseudo_augmentation(nets.discriminator.p, x_real, pseudo_data)
+        x_real_augmented = adaptive_pseudo_augmentation(nets.discriminator.module.p, x_real, pseudo_data)
     else:
         x_real_augmented = x_real
 
