@@ -109,7 +109,7 @@ class Solver(nn.Module):
         g_losses_latent_avg = {}
         g_losses_ref_avg = {}
 
-        apa_stat = StatCollector(args.num_domains, self.device)
+        apa_stat = StatCollector(self.device)
 
         window_avg_len = 100
         for i in range(args.resume_iter, args.total_iters):
@@ -176,7 +176,6 @@ class Solver(nn.Module):
                 adjust = np.sign(apa_stat.mean() - apa_target) \
                          * (args.batch_size * args.apa_interval) / (args.apa_kimg * 1000)
                 nets.discriminator.p.copy_((nets.discriminator.p + adjust).clamp_(0., 1.))
-
 
             # print out log info
             if (i + 1) % args.print_every == 0:
@@ -266,30 +265,28 @@ class MovingAverage:
 
 class StatCollector:
 
-    def __init__(self, num_domains, device):
-        self._delta = torch.zeros([num_domains, 3], device=device, dtype=torch.float64)
+    def __init__(self, device):
+        self._delta = torch.zeros([3], device=device, dtype=torch.float64)
         self.device = device
-        self.num_domains = num_domains
-        self._cumulative = torch.zeros([num_domains, 3], device=device, dtype=torch.float64)
+        self._cumulative = torch.zeros([3], device=device, dtype=torch.float64)
 
-    def add(self, value):
+    def add(self, value: torch.Tensor):
         if value.numel() == 0:
             return
 
-        elems = value.detach().flatten().to(torch.float32)
+        elems: torch.Tensor = value.detach().flatten().to(torch.float32)
 
-        moments = torch.zeros([self.num_domains, 3], device=self.device, dtype=torch.float64)
         moments = torch.stack([
             torch.ones_like(elems).sum(),
             elems.sum(),
-            elems.square().sum(),
+            torch.pow(elems, 2).sum(),
         ]).to(torch.float64)
 
         self._cumulative.add_(moments)
 
     def update(self):
         self._delta.copy_(self._cumulative)
-        self._cumulative = torch.zeros([self.num_domains, 3], device=self.device, dtype=torch.float64)
+        self._cumulative = torch.zeros([3], device=self.device, dtype=torch.float64)
 
     def num(self):
         return int(self._delta[0])
@@ -297,7 +294,7 @@ class StatCollector:
     def mean(self):
         if int(self._delta[0]) == 0:
             return float("nan")
-        return float(self._delta[i, 1] / self._delta[i, 0])
+        return float(self._delta[1] / self._delta[0])
 
     def std(self):
         if int(self._delta[0]) == 0 or not np.isfinite(float(self._delta[1])):
