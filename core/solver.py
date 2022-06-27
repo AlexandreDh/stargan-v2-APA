@@ -191,7 +191,7 @@ class Solver(nn.Module):
                 all_losses['G/lambda_ds'] = args.lambda_ds
                 log += ' '.join(['%s: [%.4f]' % (key, value) for key, value in all_losses.items()])
                 log += f" loss/signs/real: {apa_stat.mean()}"
-                log += f" augment: {nets.discriminator.p.cpu():.2f}"
+                log += f" augment: {nets.discriminator.module.p.cpu():.2f}"
                 print(log)
 
             # generate images for debugging
