@@ -120,6 +120,8 @@ if __name__ == '__main__':
                         help='Use APA augmentation for the discriminator')
     parser.add_argument('--apa_interval', type=int, default=16,
                         help='Number of batch between two apa evaluation')
+    parser.add_argument('--apa_start', type=int, default=500,
+                        help='Number of iteration before we start applying APA')
     parser.add_argument('--apa_kimg', type=int, default=500,
                         help='APA adjustment speed, measured in how many kimg it takes for p to increase/decrease by one units')
     parser.add_argument('--total_iters', type=int, default=100000,
