@@ -318,11 +318,11 @@ def add_loss_avg(loss_avg, loss, window_avg_len):
         loss_avg[k].add_value(v)
 
 
-def adaptive_pseudo_augmentation(p, real_img, pseudo_data, device):
+def adaptive_pseudo_augmentation(p, real_img, pseudo_data):
     # Apply Adaptive Pseudo Augmentation (APA)
     batch_size = real_img.shape[0]
-    pseudo_flag = torch.ones([batch_size, 1, 1, 1], device=device)
-    pseudo_flag = torch.where(torch.rand([batch_size, 1, 1, 1], device=device) < p,
+    pseudo_flag = torch.ones([batch_size, 1, 1, 1], device=real_img.device)
+    pseudo_flag = torch.where(torch.rand([batch_size, 1, 1, 1], device=real_img.device) < p,
                               pseudo_flag, torch.zeros_like(pseudo_flag))
     if torch.allclose(pseudo_flag, torch.zeros_like(pseudo_flag)):
         return real_img
@@ -335,7 +335,7 @@ def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, mas
     assert (z_trg is None) != (x_ref is None)
 
     if args.use_apa and pseudo_data is not None:
-        x_real_augmented = adaptive_pseudo_augmentation(nets.discriminator.p, x_real, pseudo_data, args.device)
+        x_real_augmented = adaptive_pseudo_augmentation(nets.discriminator.p, x_real, pseudo_data)
     else:
         x_real_augmented = x_real
 
