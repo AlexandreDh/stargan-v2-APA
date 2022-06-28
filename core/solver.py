@@ -85,9 +85,6 @@ class Solver(nn.Module):
         nets_ema = self.nets_ema
         optims = self.optims
 
-        domain_batch_count = np.zeros(1)
-        pseudo_data = None
-
         # fetch random validation images for debugging
         fetcher = InputFetcher(loaders.src, loaders.ref, args.latent_dim, 'train')
         fetcher_val = InputFetcher(loaders.val, None, args.latent_dim, 'val')
@@ -120,9 +117,24 @@ class Solver(nn.Module):
 
             masks = nets.fan.get_heatmap(x_real) if args.w_hpf > 0 else None
 
-            # train the discriminator
+            # train the generator
+            g_loss, g_losses_latent, p_data_latent = compute_g_loss(
+                nets, args, x_real, y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks)
+            self._reset_grad()
+            g_loss.backward()
+            optims.generator.step()
+            optims.mapping_network.step()
+            optims.style_encoder.step()
+
+            g_loss, g_losses_ref, _ = compute_g_loss(
+                nets, args, x_real, y_org, y_trg, x_refs=[x_ref, x_ref2], masks=masks)
+            self._reset_grad()
+            g_loss.backward()
+            optims.generator.step()
+            
+             # train the discriminator
             d_loss, d_losses_latent, signs_real = compute_d_loss(
-                nets, args, x_real, y_org, y_trg, z_trg=z_trg, masks=masks, pseudo_data=pseudo_data)
+                nets, args, x_real, y_org, y_trg, z_trg=z_trg, masks=masks, pseudo_data=p_data_latent)
             self._reset_grad()
             d_loss.backward()
             optims.discriminator.step()
@@ -136,23 +148,6 @@ class Solver(nn.Module):
             optims.discriminator.step()
 
             apa_stat.add(signs_real)
-
-            # train the generator
-            g_loss, g_losses_latent, p_data_latent = compute_g_loss(
-                nets, args, x_real, y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks)
-            self._reset_grad()
-            g_loss.backward()
-            optims.generator.step()
-            optims.mapping_network.step()
-            optims.style_encoder.step()
-
-            pseudo_data = p_data_latent
-
-            g_loss, g_losses_ref, _ = compute_g_loss(
-                nets, args, x_real, y_org, y_trg, x_refs=[x_ref, x_ref2], masks=masks)
-            self._reset_grad()
-            g_loss.backward()
-            optims.generator.step()
 
             # computing moving average of losses
             add_loss_avg(d_losses_latent_avg, d_losses_latent, window_avg_len)
