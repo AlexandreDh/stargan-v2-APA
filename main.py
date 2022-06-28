@@ -118,7 +118,7 @@ if __name__ == '__main__':
                         help='Probability of using random affine transformation')
     parser.add_argument('--use_apa', action="store_true",
                         help='Use APA augmentation for the discriminator')
-     parser.add_argument('--apa_target', type=float, default=0.6,
+    parser.add_argument('--apa_target', type=float, default=0.6,
                         help='APA target')
     parser.add_argument('--apa_interval', type=int, default=16,
                         help='Number of batch between two apa evaluation')
