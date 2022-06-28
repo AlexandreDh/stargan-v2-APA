@@ -86,7 +86,6 @@ class Solver(nn.Module):
         optims = self.optims
 
         domain_batch_count = np.zeros(1)
-        apa_target = 0.6
         pseudo_data = None
 
         # fetch random validation images for debugging
@@ -131,7 +130,7 @@ class Solver(nn.Module):
             apa_stat.add(signs_real)
 
             d_loss, d_losses_ref, signs_real = compute_d_loss(
-                nets, args, x_real, y_org, y_trg, x_ref=x_ref, masks=masks, pseudo_data=pseudo_data)
+                nets, args, x_real, y_org, y_trg, x_ref=x_ref, masks=masks, pseudo_data=None)
             self._reset_grad()
             d_loss.backward()
             optims.discriminator.step()
@@ -171,9 +170,9 @@ class Solver(nn.Module):
                 args.lambda_ds -= (initial_lambda_ds / args.ds_iter)
 
             # execute APA heuristic
-            if args.use_apa and (i + 1) % args.apa_interval and ((args.resume_iter < args.apa_start and i + 1 >= args.apa_start) or args.resume_iter >= args.apa_start):
+            if args.use_apa and (i + 1) % args.apa_interval and i + 1 > args.apa_start:
                 apa_stat.update()
-                adjust = np.sign(apa_stat.mean() - apa_target) \
+                adjust = np.sign(apa_stat.mean() - args.apa_target) \
                          * (args.batch_size * args.apa_interval) / (args.apa_kimg * 1000)
                 nets.discriminator.module.p.copy_((nets.discriminator.module.p + adjust).clamp_(0., 1.))
 
