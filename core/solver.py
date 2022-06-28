@@ -134,7 +134,7 @@ class Solver(nn.Module):
             
              # train the discriminator
             d_loss, d_losses_latent, signs_real = compute_d_loss(
-                nets, args, x_real, y_org, y_trg, z_trg=z_trg, masks=masks, pseudo_data=p_data_latent)
+                nets, args, x_real, y_org, y_trg, z_trg=z_trg, masks=masks)
             self._reset_grad()
             d_loss.backward()
             optims.discriminator.step()
@@ -142,7 +142,7 @@ class Solver(nn.Module):
             apa_stat.add(signs_real)
 
             d_loss, d_losses_ref, signs_real = compute_d_loss(
-                nets, args, x_real, y_org, y_trg, x_ref=x_ref, masks=masks, pseudo_data=None)
+                nets, args, x_real, y_org, y_trg, x_ref=x_ref, masks=masks)
             self._reset_grad()
             d_loss.backward()
             optims.discriminator.step()
@@ -328,7 +328,23 @@ def adaptive_pseudo_augmentation(p, real_img, pseudo_data):
 def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, masks=None, pseudo_data=None):
     assert (z_trg is None) != (x_ref is None)
 
-    if args.use_apa and pseudo_data is not None:
+    # with fake images
+    with torch.no_grad():
+        if z_trg is not None:
+            s_trg = nets.mapping_network(z_trg, y_trg)
+            s_org = nets.mapping_network(z_trg, y_org)
+        else:  # x_ref is not None
+            s_trg = nets.style_encoder(x_ref, y_trg)
+            s_org = nets.style_encoder(x_ref, y_org)
+
+        x_fake = nets.generator(x_real, s_trg, masks=masks)
+        pseudo_data = nets.generator(x_real, s_org, masks=masks)
+
+    out = nets.discriminator(x_fake, y_trg)
+    loss_fake = adv_loss(out, 0)
+    
+    # APA augmentation
+    if args.use_apa:
         x_real_augmented = adaptive_pseudo_augmentation(nets.discriminator.module.p, x_real, pseudo_data)
     else:
         x_real_augmented = x_real
@@ -340,17 +356,6 @@ def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, mas
     logits_real = nets.discriminator(x_real_augmented, y_org)
     loss_real = adv_loss(logits_real, 1)
     loss_reg = r1_reg(logits_real, x_real_augmented)
-
-    # with fake images
-    with torch.no_grad():
-        if z_trg is not None:
-            s_trg = nets.mapping_network(z_trg, y_trg)
-        else:  # x_ref is not None
-            s_trg = nets.style_encoder(x_ref, y_trg)
-
-        x_fake = nets.generator(x_real, s_trg, masks=masks)
-    out = nets.discriminator(x_fake, y_trg)
-    loss_fake = adv_loss(out, 0)
 
     loss = loss_real + loss_fake + args.lambda_reg * loss_reg
     return loss, Munch(real=loss_real.item(),
