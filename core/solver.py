@@ -169,7 +169,7 @@ class Solver(nn.Module):
                 apa_stat.update()
                 adjust = np.sign(apa_stat.mean() - args.apa_target) \
                          * (args.batch_size * args.apa_interval) / (args.apa_kimg * 1000)
-                nets.discriminator.module.p.copy_((nets.discriminator.module.p + adjust).clamp_(0., 1.))
+                nets.discriminator.module.p.copy_((nets.discriminator.module.p + adjust).clamp_(0., args.apa_max_p))
 
             # print out log info
             if (i + 1) % args.print_every == 0:
@@ -219,6 +219,23 @@ class Solver(nn.Module):
         fname = ospj(args.result_dir, 'video_ref.mp4')
         print('Working on {}...'.format(fname))
         utils.video_ref(nets_ema, args, src.x, ref.x, ref.y, fname)
+
+    # @torch.no_grad()
+    # def sample_latent(self, loaders, target_domains):
+    #     args = self.args
+    #     nets_ema = self.nets_ema
+    #     os.makedirs(args.result_dir, exist_ok=True)
+    #     self._load_checkpoint(args.resume_iter)
+    #
+    #     src = next(InputFetcher(loaders.src, None, args.latent_dim, 'test'))
+    #
+    #     fname = ospj(args.result_dir, 'reference.jpg')
+    #     print('Working on {}...'.format(fname))
+    #     utils.translate_using_reference(nets_ema, args, src.x, ref.x, ref.y, fname)
+    #
+    #     fname = ospj(args.result_dir, 'video_ref.mp4')
+    #     print('Working on {}...'.format(fname))
+    #     utils.video_ref(nets_ema, args, src.x, ref.x, ref.y, fname)
 
     @torch.no_grad()
     def evaluate(self):

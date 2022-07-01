@@ -120,6 +120,8 @@ if __name__ == '__main__':
                         help='Use APA augmentation for the discriminator')
     parser.add_argument('--apa_target', type=float, default=0.6,
                         help='APA target')
+    parser.add_argument('--apa_max_p', type=float, default=1,
+                        help='APA max augmentation probability')
     parser.add_argument('--apa_interval', type=int, default=16,
                         help='Number of batch between two apa evaluation')
     parser.add_argument('--apa_start', type=int, default=500,
