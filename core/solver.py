@@ -246,7 +246,7 @@ class Solver(nn.Module):
 
         if show:
             from matplotlib import pyplot as plt
-            plt.imshow(results, interpolation='nearest')
+            plt.imshow(results.movedim(0, 2).numpy(), interpolation='nearest')
             plt.show()
 
     @torch.no_grad()
