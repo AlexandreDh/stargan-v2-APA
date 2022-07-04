@@ -72,7 +72,7 @@ def main(args):
                                             batch_size=args.val_batch_size,
                                             shuffle=False,
                                             num_workers=args.num_workers))
-        solver.sample_latent(loaders)
+        solver.sample(loaders)
     elif args.mode == 'sample_latent':
         assert len(subdirs(args.src_dir)) == args.num_domains
         loaders = Munch(src=get_test_loader(root=args.src_dir,
@@ -85,7 +85,7 @@ def main(args):
                                             batch_size=args.val_batch_size,
                                             shuffle=False,
                                             num_workers=args.num_workers))
-        solver.sample(loaders, args.domains_latent, show=args.show_latent)
+        solver.sample_latent(loaders, args.domains_latent, show=args.show_latent)
     elif args.mode == 'eval':
         solver.evaluate()
     elif args.mode == 'align':
