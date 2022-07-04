@@ -239,7 +239,7 @@ class Solver(nn.Module):
         y_trg_list = [torch.tensor(y).repeat(N).to(device) for y in target_domains]
         z_trg_list = torch.randn(args.num_outs_per_domain, 1, args.latent_dim).repeat(1, N, 1).to(device)
 
-        filename = ospj(args.args.result_dir, 'sample_latent_psi_%.1f.jpg' % (psi))
+        filename = ospj(args.result_dir, 'sample_latent_psi_%.1f.jpg' % (psi))
         results = utils.translate_using_latent_visual(self.nets_ema, src.x, y_trg_list, z_trg_list, psi)
 
         vutils.save_image(results, filename)
