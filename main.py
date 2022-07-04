@@ -72,7 +72,20 @@ def main(args):
                                             batch_size=args.val_batch_size,
                                             shuffle=False,
                                             num_workers=args.num_workers))
-        solver.sample(loaders)
+        solver.sample_latent(loaders)
+    elif args.mode == 'sample_latent':
+        assert len(subdirs(args.src_dir)) == args.num_domains
+        loaders = Munch(src=get_test_loader(root=args.src_dir,
+                                            img_size=args.img_size,
+                                            batch_size=args.val_batch_size,
+                                            shuffle=False,
+                                            num_workers=args.num_workers),
+                        ref=get_test_loader(root=args.ref_dir,
+                                            img_size=args.img_size,
+                                            batch_size=args.val_batch_size,
+                                            shuffle=False,
+                                            num_workers=args.num_workers))
+        solver.sample(loaders, args.domains_latent, show=args.show_latent)
     elif args.mode == 'eval':
         solver.evaluate()
     elif args.mode == 'align':
@@ -149,9 +162,15 @@ if __name__ == '__main__':
     parser.add_argument('--num_outs_per_domain', type=int, default=10,
                         help='Number of generated images per domain during sampling')
 
+    # latent sample argument
+    parser.add_argument('--show_latent', action="store_true",
+                        help='Show latent generation with matplotlib')
+    parser.add_argument('--domains_latent', nargs="+",
+                        help='List of domains to sample from latent space')
+
     # misc
     parser.add_argument('--mode', type=str, required=True,
-                        choices=['train', 'sample', 'eval', 'align'],
+                        choices=['train', 'sample', 'eval', 'align', 'sample_latent'],
                         help='This argument is used in solver')
     parser.add_argument('--num_workers', type=int, default=4,
                         help='Number of workers used in DataLoader')

@@ -18,6 +18,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+import torchvision
+import torchvision.utils as vutils
+
 from core.model import build_model
 from core.checkpoint import CheckpointIO
 from core.data_loader import InputFetcher
@@ -220,22 +223,31 @@ class Solver(nn.Module):
         print('Working on {}...'.format(fname))
         utils.video_ref(nets_ema, args, src.x, ref.x, ref.y, fname)
 
-    # @torch.no_grad()
-    # def sample_latent(self, loaders, target_domains):
-    #     args = self.args
-    #     nets_ema = self.nets_ema
-    #     os.makedirs(args.result_dir, exist_ok=True)
-    #     self._load_checkpoint(args.resume_iter)
-    #
-    #     src = next(InputFetcher(loaders.src, None, args.latent_dim, 'test'))
-    #
-    #     fname = ospj(args.result_dir, 'reference.jpg')
-    #     print('Working on {}...'.format(fname))
-    #     utils.translate_using_reference(nets_ema, args, src.x, ref.x, ref.y, fname)
-    #
-    #     fname = ospj(args.result_dir, 'video_ref.mp4')
-    #     print('Working on {}...'.format(fname))
-    #     utils.video_ref(nets_ema, args, src.x, ref.x, ref.y, fname)
+    @torch.no_grad()
+    def sample_latent(self, loaders, target_domains, psi=1.0, show=False):
+        args = self.args
+
+        os.makedirs(args.result_dir, exist_ok=True)
+        self._load_checkpoint(args.resume_iter)
+
+        src = next(InputFetcher(loaders.src, None, args.latent_dim, 'test'))
+
+        device = src.x.device
+        N = src.x.size(0)
+
+        # latent-guided image synthesis
+        y_trg_list = [torch.tensor(y).repeat(N).to(device) for y in target_domains]
+        z_trg_list = torch.randn(args.num_outs_per_domain, 1, args.latent_dim).repeat(1, N, 1).to(device)
+
+        filename = ospj(args.args.result_dir, 'sample_latent_psi_%.1f.jpg' % (psi))
+        results = utils.translate_using_latent_visual(self.nets_ema, src.x, y_trg_list, z_trg_list, psi)
+
+        vutils.save_image(results, filename)
+
+        if show:
+            from matplotlib import pyplot as plt
+            plt.imshow(results, interpolation='nearest')
+            plt.show()
 
     @torch.no_grad()
     def evaluate(self):

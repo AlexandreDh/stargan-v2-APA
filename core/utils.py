@@ -75,11 +75,11 @@ def translate_and_reconstruct(nets, args, x_src, y_src, x_ref, y_ref, filename):
 
 
 @torch.no_grad()
-def translate_using_latent(nets, args, x_src, y_trg_list, z_trg_list, psi, filename):
+def translate_latent(nets, w_hpf, x_src, y_trg_list, z_trg_list, psi):
     N, C, H, W = x_src.size()
     latent_dim = z_trg_list[0].size(1)
     x_concat = [x_src]
-    masks = nets.fan.get_heatmap(x_src) if args.w_hpf > 0 else None
+    masks = nets.fan.get_heatmap(x_src) if w_hpf > 0 else None
 
     for i, y_trg in enumerate(y_trg_list):
         z_many = torch.randn(10000, latent_dim).to(x_src.device)
@@ -95,7 +95,26 @@ def translate_using_latent(nets, args, x_src, y_trg_list, z_trg_list, psi, filen
             x_concat += [x_fake]
 
     x_concat = torch.cat(x_concat, dim=0)
-    save_image(x_concat, N, filename)
+
+    return x_concat
+
+
+@torch.no_grad()
+def translate_using_latent(nets, args, x_src, y_trg_list, z_trg_list, psi, filename):
+    x_concat = translate_latent(nets, args.w_hpf, x_src, y_trg_list, z_trg_list, psi)
+
+    save_image(x_concat, x_src.size(0), filename)
+
+
+@torch.no_grad()
+def translate_using_latent_visual(nets, x_src, y_trg_list, z_trg_list, psi):
+    N, C, H, W = x_src.size()
+
+    x_concat = translate_latent(nets, 0, x_src, y_trg_list, z_trg_list, psi)
+    x_concat_denorm = denormalize(x_concat)
+    x_concat_denorm = vutils.make_grid(x_concat_denorm, nrow=N).cpu()
+
+    return x_concat_denorm
 
 
 @torch.no_grad()
@@ -110,11 +129,11 @@ def translate_using_reference(nets, args, x_src, x_ref, y_ref, filename):
     x_concat = [x_src_with_wb]
     for i, s_ref in enumerate(s_ref_list):
         x_fake = nets.generator(x_src, s_ref, masks=masks)
-        x_fake_with_ref = torch.cat([x_ref[i:i+1], x_fake], dim=0)
+        x_fake_with_ref = torch.cat([x_ref[i:i + 1], x_fake], dim=0)
         x_concat += [x_fake_with_ref]
 
     x_concat = torch.cat(x_concat, dim=0)
-    save_image(x_concat, N+1, filename)
+    save_image(x_concat, N + 1, filename)
     del x_concat
 
 
@@ -183,9 +202,9 @@ def slide(entries, margin=32):
     """
     _, C, H, W = entries[0].shape
     alphas = get_alphas()
-    T = len(alphas) # number of frames
+    T = len(alphas)  # number of frames
 
-    canvas = - torch.ones((T, C, H*2, W + margin))
+    canvas = - torch.ones((T, C, H * 2, W + margin))
     merged = torch.cat(entries, dim=2)  # (1, 3, 512, 256)
     for t, alpha in enumerate(alphas):
         top = int(H * (1 - alpha))  # top, bottom for canvas
@@ -262,7 +281,7 @@ def video_latent(nets, args, x_src, y_list, z_list, psi, fname):
 def save_video(fname, images, output_fps=30, vcodec='libx264', filters=''):
     assert isinstance(images, np.ndarray), "images should be np.array: NHWC"
     num_frames, height, width, channels = images.shape
-    stream = ffmpeg.input('pipe:', format='rawvideo', 
+    stream = ffmpeg.input('pipe:', format='rawvideo',
                           pix_fmt='rgb24', s='{}x{}'.format(width, height))
     stream = ffmpeg.filter(stream, 'setpts', '2*PTS')  # 2*PTS is for slower playback
     stream = ffmpeg.output(stream, fname, pix_fmt='yuv420p', vcodec=vcodec, r=output_fps)
