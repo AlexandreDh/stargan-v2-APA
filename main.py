@@ -7,7 +7,7 @@ This work is licensed under the Creative Commons Attribution-NonCommercial
 http://creativecommons.org/licenses/by-nc/4.0/ or send a letter to
 Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
 """
-
+import math
 import os
 import argparse
 
@@ -85,7 +85,11 @@ def main(args):
                                             batch_size=args.val_batch_size,
                                             shuffle=False,
                                             num_workers=args.num_workers))
-        solver.sample_latent(loaders, args.domains_latent, show=args.show_latent)
+
+        list_domains = [int(y) for y in args.domains_latent]
+
+        assert all([isinstance(y, int) and not math.isnan(y) for y in list_domains])
+        solver.sample_latent(loaders, list_domains, show=args.show_latent)
     elif args.mode == 'eval':
         solver.evaluate()
     elif args.mode == 'align':
