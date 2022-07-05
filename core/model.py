@@ -257,7 +257,7 @@ class StyleEncoder(nn.Module):
 class Discriminator(nn.Module):
     def __init__(self, img_size=256, num_domains=2, max_conv_dim=512):
         super().__init__()
-        # Overall multiplier for augmentation probability for APA, one for each domain
+        # Overall multiplier for augmentation probability for APA
         self.register_buffer('p', torch.zeros([]))
 
         dim_in = min(2**14 // img_size, max_starting_dim)
@@ -284,11 +284,44 @@ class Discriminator(nn.Module):
         return out
 
 
+class PatchDiscriminator(nn.Module):
+    def __init__(self, img_size=256, num_domains=2, max_conv_dim=512, n_layers=3):
+        super().__init__()
+        # Overall multiplier for augmentation probability for APA
+        self.register_buffer('p', torch.zeros([]))
+
+        dim_in = min(2**14 // img_size, max_starting_dim)
+        blocks = []
+        blocks += [nn.Conv2d(3, dim_in, 3, 1, 1)]
+
+        repeat_num = int(np.log2(img_size)) - 2
+        for _ in range(min(n_layers, repeat_num)):
+            dim_out = min(dim_in * 2, max_conv_dim)
+            blocks += [ResBlk(dim_in, dim_out, downsample=True)]
+            dim_in = dim_out
+
+        blocks += [nn.LeakyReLU(0.2)]
+        blocks += [nn.Conv2d(dim_out, dim_out, 4, 1, 1)]
+        blocks += [nn.LeakyReLU(0.2)]
+        blocks += [nn.Conv2d(dim_out, num_domains, 1, 1, 0)]
+        self.main = nn.Sequential(*blocks)
+
+    def forward(self, x, y):
+        out = self.main(x) # (batch, N, N, num_domains)
+        idx = torch.LongTensor(range(y.size(0))).to(y.device)
+        out = out[idx, :, :, y]  # (batch, N, N)
+        return out
+
+
 def build_model(args):
     generator = nn.DataParallel(Generator(args.img_size, args.style_dim, w_hpf=args.w_hpf, max_conv_dim=args.hidden_dim))
     mapping_network = nn.DataParallel(MappingNetwork(args.latent_dim, args.style_dim, args.num_domains, hidden_dim=args.hidden_dim))
     style_encoder = nn.DataParallel(StyleEncoder(args.img_size, args.style_dim, args.num_domains, max_conv_dim=args.hidden_dim))
-    discriminator = nn.DataParallel(Discriminator(args.img_size, args.num_domains, max_conv_dim=args.hidden_dim))
+    if not args.patch_discriminator:
+        discriminator = nn.DataParallel(Discriminator(args.img_size, args.num_domains, max_conv_dim=args.hidden_dim))
+    else:
+        discriminator = nn.DataParallel(PatchDiscriminator(args.img_size, args.num_domains, max_conv_dim=args.hidden_dim, n_layers=args.num_d_layers))
+
     generator_ema = copy.deepcopy(generator)
     mapping_network_ema = copy.deepcopy(mapping_network)
     style_encoder_ema = copy.deepcopy(style_encoder)

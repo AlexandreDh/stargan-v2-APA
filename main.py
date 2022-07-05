@@ -113,6 +113,10 @@ if __name__ == '__main__':
                         help='Hidden dimension of mapping network')
     parser.add_argument('--style_dim', type=int, default=64,
                         help='Style code dimension')
+    parser.add_argument('--patch_discriminator', action="store_true",
+                        help='Use PatchGAN')
+    parser.add_argument('--num_d_layers', type=int, default=3,
+                        help='Number of layers in PatchGAN discriminator')
 
     # weight for objective functions
     parser.add_argument('--lambda_reg', type=float, default=1,
