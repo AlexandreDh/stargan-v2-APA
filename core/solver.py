@@ -28,6 +28,7 @@ import core.utils as utils
 from metrics.eval import calculate_metrics
 
 import numpy as np
+from pytorch_model_summary import summary
 
 
 class Solver(nn.Module):
@@ -45,6 +46,8 @@ class Solver(nn.Module):
             setattr(self, name + '_ema', module)
 
         if args.mode == 'train':
+            print(summary(self.nets.discriminator, torch.zeros(1, 3, args.img_size, args.img_size)))
+
             self.optims = Munch()
             for net in self.nets.keys():
                 if net == 'fan':
