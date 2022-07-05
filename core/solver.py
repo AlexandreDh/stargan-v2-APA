@@ -46,7 +46,7 @@ class Solver(nn.Module):
             setattr(self, name + '_ema', module)
 
         if args.mode == 'train':
-            print(summary(self.nets.discriminator, torch.zeros([1, 3, args.img_size, args.img_size]), torch.zeros([1])))
+            print(summary(self.nets.discriminator, torch.zeros([1, 3, args.img_size, args.img_size]), torch.zeros([1], dtype=torch.long)))
 
             self.optims = Munch()
             for net in self.nets.keys():
