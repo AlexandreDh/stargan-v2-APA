@@ -151,7 +151,7 @@ def debug_image(nets, args, inputs, step):
 
     # latent-guided image synthesis
     y_trg_list = [torch.tensor(y).repeat(N).to(device)
-                  for y in range(min(args.num_domains, 7))]
+                  for y in range(min(args.num_domains, 8))]
     z_trg_list = torch.randn(args.num_outs_per_domain, 1, args.latent_dim).repeat(1, N, 1).to(device)
     for psi in [0.5, 0.7, 1.0]:
         filename = ospj(args.sample_dir, '%06d_latent_psi_%.1f.jpg' % (step, psi))
