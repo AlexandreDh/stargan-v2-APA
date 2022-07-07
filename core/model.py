@@ -307,9 +307,9 @@ class PatchDiscriminator(nn.Module):
         self.main = nn.Sequential(*blocks)
 
     def forward(self, x, y):
-        out = self.main(x) # (batch, N, N, num_domains)
+        out = self.main(x) # (batch, num_domains, N, N)
         idx = torch.LongTensor(range(y.size(0))).to(y.device)
-        out = out[idx, :, :, y]  # (batch, N, N)
+        out = out[idx, y, :, :]  # (batch, N, N)
         return out
 
 
