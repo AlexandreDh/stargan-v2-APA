@@ -114,7 +114,14 @@ class Solver(nn.Module):
         apa_stat = StatCollector(self.device)
 
         window_avg_len = 100
+        p_patch = 0
+        is_patch = None
         for i in range(args.resume_iter, args.total_iters):
+            if args.patch_discriminator:
+                # updating probabilty of using patch discriminator
+                p_patch = min(max((i - args.patch_iter_start) / args.patch_iter_len, 0), 1)
+                is_patch = np.random.random() < p_patch
+
             # fetch images and labels
             inputs = next(fetcher)
             x_real, y_org = inputs.x_src, inputs.y_src
@@ -125,7 +132,7 @@ class Solver(nn.Module):
 
             # train the generator
             g_loss, g_losses_latent, p_data_latent = compute_g_loss(
-                nets, args, x_real, y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks)
+                nets, args, x_real, y_org, y_trg, z_trgs=[z_trg, z_trg2], masks=masks, is_patch=is_patch)
             self._reset_grad()
             g_loss.backward()
             optims.generator.step()
@@ -133,14 +140,15 @@ class Solver(nn.Module):
             optims.style_encoder.step()
 
             g_loss, g_losses_ref, _ = compute_g_loss(
-                nets, args, x_real, y_org, y_trg, x_refs=[x_ref, x_ref2], masks=masks)
+                nets, args, x_real, y_org, y_trg, x_refs=[x_ref, x_ref2], masks=masks, is_patch=is_patch)
             self._reset_grad()
             g_loss.backward()
             optims.generator.step()
             
-             # train the discriminator
+            # train the discriminator
+
             d_loss, d_losses_latent, signs_real = compute_d_loss(
-                nets, args, x_real, y_org, y_trg, z_trg=z_trg, masks=masks)
+                nets, args, x_real, y_org, y_trg, z_trg=z_trg, masks=masks, is_patch=is_patch)
             self._reset_grad()
             d_loss.backward()
             optims.discriminator.step()
@@ -148,7 +156,7 @@ class Solver(nn.Module):
             apa_stat.add(signs_real)
 
             d_loss, d_losses_ref, signs_real = compute_d_loss(
-                nets, args, x_real, y_org, y_trg, x_ref=x_ref, masks=masks)
+                nets, args, x_real, y_org, y_trg, x_ref=x_ref, masks=masks, is_patch=is_patch)
             self._reset_grad()
             d_loss.backward()
             optims.discriminator.step()
@@ -357,7 +365,7 @@ def adaptive_pseudo_augmentation(p, real_img, pseudo_data):
         return pseudo_data * pseudo_flag + real_img * (1 - pseudo_flag)
 
 
-def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, masks=None, pseudo_data=None):
+def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, masks=None, is_patch=None):
     assert (z_trg is None) != (x_ref is None)
 
     # with fake images
@@ -372,7 +380,11 @@ def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, mas
         x_fake = nets.generator(x_real, s_trg, masks=masks)
         pseudo_data = nets.generator(x_real, s_org, masks=masks)
 
-    out = nets.discriminator(x_fake, y_trg)
+    if is_patch is not None:
+        out = nets.discriminator(x_fake, y_trg, is_patch=is_patch)
+    else:
+        out = nets.discriminator(x_fake, y_trg)
+
     loss_fake = adv_loss(out, 0)
     
     # APA augmentation
@@ -385,7 +397,11 @@ def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, mas
     x_real.requires_grad_()
     x_real_augmented.requires_grad_()
 
-    logits_real = nets.discriminator(x_real_augmented, y_org)
+    if is_patch is not None:
+        logits_real = nets.discriminator(x_real_augmented, y_org, is_patch=is_patch)
+    else:
+        logits_real = nets.discriminator(x_real_augmented, y_org)
+
     loss_real = adv_loss(logits_real, 1)
     loss_reg = r1_reg(logits_real, x_real_augmented)
 
@@ -395,7 +411,7 @@ def compute_d_loss(nets, args, x_real, y_org, y_trg, z_trg=None, x_ref=None, mas
                        reg=loss_reg.item()), logits_real.sign()
 
 
-def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, masks=None):
+def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, masks=None, is_patch=None):
     assert (z_trgs is None) != (x_refs is None)
     if z_trgs is not None:
         z_trg, z_trg2 = z_trgs
@@ -409,7 +425,10 @@ def compute_g_loss(nets, args, x_real, y_org, y_trg, z_trgs=None, x_refs=None, m
         s_trg = nets.style_encoder(x_ref, y_trg)
 
     x_fake = nets.generator(x_real, s_trg, masks=masks)
-    out = nets.discriminator(x_fake, y_trg)
+    if is_patch is not None:
+        out = nets.discriminator(x_fake, y_trg, is_patch=is_patch)
+    else:
+        out = nets.discriminator(x_fake, y_trg)
     loss_adv = adv_loss(out, 1)
 
     # style reconstruction loss

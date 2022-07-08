@@ -292,23 +292,44 @@ class PatchDiscriminator(nn.Module):
 
         dim_in = min(2**14 // img_size, max_starting_dim)
         blocks = []
-        blocks += [nn.Conv2d(3, dim_in, 3, 1, 1)]
+        blocks_patch = []
+
+        start_conv = nn.Conv2d(3, dim_in, 3, 1, 1)
+        blocks += [start_conv]
+        blocks_patch += [start_conv]
 
         repeat_num = int(np.log2(img_size)) - 2
-        for _ in range(min(n_layers, repeat_num)):
+        dim_out_patch = dim_in
+        for idx in range(repeat_num):
             dim_out = min(dim_in * 2, max_conv_dim)
-            blocks += [ResBlk(dim_in, dim_out, downsample=True)]
+            blk = ResBlk(dim_in, dim_out, downsample=True)
+            blocks += [blk]
+            if idx < n_layers:
+                blocks_patch += [blk]
+                dim_out_patch = dim_out
             dim_in = dim_out
 
         blocks += [nn.LeakyReLU(0.2)]
-        blocks += [nn.Conv2d(dim_out, dim_out, 4, 1, 1)]
+        blocks += [nn.Conv2d(dim_out, dim_out, 4, 1, 0)]
         blocks += [nn.LeakyReLU(0.2)]
         blocks += [nn.Conv2d(dim_out, num_domains, 1, 1, 0)]
-        self.main = nn.Sequential(*blocks)
 
-    def forward(self, x, y):
-        out = self.main(x) # (batch, num_domains, N, N)
+        blocks_patch += [nn.LeakyReLU(0.2)]
+        blocks_patch += [nn.Conv2d(dim_out_patch, dim_out_patch, 4, 1, 1)]
+        blocks_patch += [nn.LeakyReLU(0.2)]
+        blocks_patch += [nn.Conv2d(dim_out_patch, num_domains, 1, 1, 0)]
+        self.main = nn.Sequential(*blocks)
+        self.patch = nn.Sequential(*blocks_patch)
+
+    def forward(self, x, y, is_patch=False):
         idx = torch.LongTensor(range(y.size(0))).to(y.device)
+        if not is_patch:
+            out = self.main(x)
+            out = out.view(out.size(0), -1)  # (batch, num_domains)
+            out = out[idx, y]  # (batch)
+            return out
+
+        out = self.patch(x) # (batch, num_domains, N, N)
         out = out[idx, y, :, :]  # (batch, N, N)
         return out
 

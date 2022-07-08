@@ -117,6 +117,10 @@ if __name__ == '__main__':
                         help='Use PatchGAN')
     parser.add_argument('--num_d_layers', type=int, default=3,
                         help='Number of layers in PatchGAN discriminator')
+    parser.add_argument('--patch_iter_len', type=int, default=8000,
+                        help='Number of iteration to transition from full discriminator to patch discriminator')
+    parser.add_argument('--patch_iter_start', type=int, default=4000,
+                        help='Iteration to start the transition from full discriminator to patch discriminator')
 
     # weight for objective functions
     parser.add_argument('--lambda_reg', type=float, default=1,
