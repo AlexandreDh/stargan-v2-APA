@@ -200,6 +200,7 @@ class Solver(nn.Module):
                 log += ' '.join(['%s: [%.4f]' % (key, value) for key, value in all_losses.items()])
                 log += f" loss/signs/real: {apa_stat.mean()}"
                 log += f" augment: {nets.discriminator.module.p.cpu():.2f}"
+                log += f" patch probability: {p_patch:.2f}"
                 print(log)
 
             # generate images for debugging
