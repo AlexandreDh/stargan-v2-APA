@@ -284,6 +284,27 @@ class Discriminator(nn.Module):
         return out
 
 
+class SelfAttention(nn.Module):
+    "Self attention layer for `n_channels`."
+
+    def __init__(self, n_channels):
+        super().__init__()
+        self.query, self.key, self.value = [self._conv(n_channels, c) for c in
+                                            (n_channels // 8, n_channels // 8, n_channels)]
+        self.gamma = nn.Parameter(torch.tensor([0.]))
+
+    def _conv(self, n_in, n_out):
+        return nn.Conv2d(n_in, n_out, 1, bias=False)
+
+    def forward(self, x):
+        size = x.size()
+        x = x.view(*size[:2], -1)
+        f, g, h = self.query(x), self.key(x), self.value(x)
+        beta = F.softmax(torch.bmm(f.transpose(1, 2), g), dim=1)
+        o = self.gamma * torch.bmm(h, beta) + x
+        return o.view(*size).contiguous()
+
+
 class PatchDiscriminator(nn.Module):
     def __init__(self, img_size=256, num_domains=2, max_conv_dim=512, n_layers=3):
         super().__init__()
@@ -307,6 +328,8 @@ class PatchDiscriminator(nn.Module):
             if idx < n_layers:
                 blocks_patch += [blk]
                 dim_out_patch = dim_out
+                if idx >= n_layers - 2: # adding self attention to the last two block
+                    blocks_patch += [SelfAttention(dim_out)]
             dim_in = dim_out
 
         blocks += [nn.LeakyReLU(0.2)]
