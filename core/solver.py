@@ -119,7 +119,7 @@ class Solver(nn.Module):
         for i in range(args.resume_iter, args.total_iters):
             if args.patch_discriminator:
                 # updating probabilty of using patch discriminator
-                p_patch = min(max((i - args.patch_iter_start) / args.patch_iter_len, 0), 1)
+                p_patch = min(max((i - args.patch_iter_start) / args.patch_iter_len, 0), args.patch_max_p)
                 is_patch = np.random.random() < p_patch
 
             # fetch images and labels
