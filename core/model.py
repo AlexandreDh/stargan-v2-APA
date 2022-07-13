@@ -296,12 +296,19 @@ class SelfAttention(nn.Module):
     def _conv(self, n_in, n_out):
         return nn.Conv2d(n_in, n_out, 1, bias=False)
 
+    def reshape_spatial(self, x):
+        size = x.size()
+
+        return x.view(*size[:2], -1)
+
     def forward(self, x):
         size = x.size()
-        x = x.view(*size[:2], -1)
-        f, g, h = self.query(x), self.key(x), self.value(x)
+
+        f = self.reshape_spatial(self.query(x))
+        g = self.reshape_spatial(self.key(x))
+        h = self.reshape_spatial(self.value(x))
         beta = F.softmax(torch.bmm(f.transpose(1, 2), g), dim=1)
-        o = self.gamma * torch.bmm(h, beta) + x
+        o = self.gamma * torch.bmm(h, beta) + self.reshape_spatial(x)
         return o.view(*size).contiguous()
 
 
