@@ -89,7 +89,7 @@ def main(args):
         list_domains = [int(y) for y in args.domains_latent]
 
         assert all([isinstance(y, int) and not math.isnan(y) for y in list_domains])
-        solver.sample_latent(loaders, list_domains, show=args.show_latent)
+        solver.sample_latent(loaders, list_domains, show=args.show_latent, psi=args.psi)
     elif args.mode == 'eval':
         solver.evaluate()
     elif args.mode == 'align':
@@ -181,6 +181,8 @@ if __name__ == '__main__':
                         help='Show latent generation with matplotlib')
     parser.add_argument('--domains_latent', nargs="+",
                         help='List of domains to sample from latent space')
+    parser.add_argument('--psi', type=float, default=1,
+                        help='Latent psi, must be between 0 and 1')
 
     # misc
     parser.add_argument('--mode', type=str, required=True,
